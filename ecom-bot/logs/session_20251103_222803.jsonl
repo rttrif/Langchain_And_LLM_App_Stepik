@@ -1,0 +1,5 @@
+{"timestamp": "2025-11-03T22:28:03.412771", "role": "system", "content": "Session started"}
+{"timestamp": "2025-11-03T22:28:09.993802", "role": "user", "content": "кто такие рик и морти"}
+{"timestamp": "2025-11-03T22:28:10.017979", "role": "error", "content": "model 'deepseek-v3.1:671b-cloud' not found (status code: 404)"}
+{"timestamp": "2025-11-03T22:28:52.295937", "role": "user", "content": "кто такие рик и морти"}
+{"timestamp": "2025-11-03T22:28:52.307415", "role": "error", "content": "model 'deepseek-v3.1:671b-cloud' not found (status code: 404)"}

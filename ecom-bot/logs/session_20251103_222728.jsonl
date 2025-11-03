@@ -1,0 +1,3 @@
+{"timestamp": "2025-11-03T22:27:28.719563", "role": "system", "content": "Session started"}
+{"timestamp": "2025-11-03T22:27:36.301164", "role": "user", "content": "как варить пиво"}
+{"timestamp": "2025-11-03T22:27:36.304469", "role": "assistant", "content": "Вы можете оформить возврат в течение 14 дней. Сохраните чек и упаковку.", "usage": {"type": "faq"}}

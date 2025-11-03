@@ -1,0 +1,38 @@
+{
+  "timestamp": "2025-11-03T22:20:21.968669",
+  "role": "system",
+  "content": "Session started"
+}
+{
+  "timestamp": "2025-11-03T22:20:30.463422",
+  "role": "user",
+  "content": "Как оформить возврат?"
+}
+{
+  "timestamp": "2025-11-03T22:20:30.466438",
+  "role": "assistant",
+  "content": "Вы можете оформить возврат в течение 14 дней. Сохраните чек и упаковку.",
+  "usage": {
+    "type": "faq"
+  }
+}
+{
+  "timestamp": "2025-11-03T22:20:41.139766",
+  "role": "user",
+  "content": "/order 12345"
+}
+{
+  "timestamp": "2025-11-03T22:20:41.143385",
+  "role": "assistant",
+  "content": "Заказ #12345: в пути, прибудет через 2 дн. (перевозчик: ShoplyExpress)"
+}
+{
+  "timestamp": "2025-11-03T22:20:50.498748",
+  "role": "user",
+  "content": "/order 99999"
+}
+{
+  "timestamp": "2025-11-03T22:20:50.502085",
+  "role": "assistant",
+  "content": "Заказ #99999 не найден. Проверьте номер."
+}
