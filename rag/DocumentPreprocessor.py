@@ -31,6 +31,7 @@ class DocumentPreprocessor:
             remove_duplicates: bool = False,
             similarity_threshold: float = 0.95,
             encoding_name: str = "cl100k_base",
+            doc_language: str = "en",
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -39,6 +40,7 @@ class DocumentPreprocessor:
         self.remove_duplicates = remove_duplicates
         self.similarity_threshold = similarity_threshold
         self.encoding_name = encoding_name
+        self.doc_language = doc_language
         self._text_splitter = self._get_text_splitter()
 
     def _get_text_splitter(self):
@@ -137,6 +139,32 @@ class DocumentPreprocessor:
 
         return unique_docs
 
+    def _enrich_metadata(
+            self,
+            documents: List[Document],
+            source: Optional[str] = None,
+            topic: Optional[str] = None,
+            date: Optional[str] = None,
+            additional_metadata: Optional[Dict[str, Any]] = None
+    ) -> List[Document]:
+        for doc in documents:
+            if source:
+                doc.metadata["source"] = source
+
+            if topic:
+                doc.metadata["topic"] = topic
+
+            if date:
+                doc.metadata["date"] = date
+
+            doc.metadata.setdefault("language", self.doc_language)
+            doc.metadata.setdefault("chunk_size", self.chunk_size)
+
+            if additional_metadata:
+                doc.metadata.update(additional_metadata)
+
+        return documents
+
     def _split_documents(self, documents: List[Document]) -> List[Document]:
         if self.chunking_strategy == "markdown":
             splits = []
@@ -161,6 +189,8 @@ class DocumentPreprocessor:
     def process_file(
             self,
             file_path: str,
+            topic: Optional[str] = None,
+            date: Optional[str] = None,
             metadata: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
         documents = self._load_document(file_path)
@@ -170,14 +200,13 @@ class DocumentPreprocessor:
                 doc.page_content = self._clean_document_text(doc.page_content)
 
         splits = self._split_documents(documents)
-
-        if metadata:
-            for doc in splits:
-                doc.metadata.update(metadata)
-
-        for doc in splits:
-            doc.metadata.setdefault("source", file_path)
-            doc.metadata.setdefault("chunk_size", self.chunk_size)
+        splits = self._enrich_metadata(
+            splits,
+            source=file_path,
+            topic=topic,
+            date=date,
+            additional_metadata=metadata
+        )
 
         if self.remove_duplicates:
             splits = self._deduplicate_documents(splits)
@@ -187,6 +216,9 @@ class DocumentPreprocessor:
     def process_text(
             self,
             text: str,
+            source: Optional[str] = None,
+            topic: Optional[str] = None,
+            date: Optional[str] = None,
             metadata: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
         if self.clean_text:
@@ -216,6 +248,14 @@ class DocumentPreprocessor:
                 for chunk in splits
             ]
 
+        documents = self._enrich_metadata(
+            documents,
+            source=source,
+            topic=topic,
+            date=date,
+            additional_metadata=metadata
+        )
+
         if self.remove_duplicates:
             documents = self._deduplicate_documents(documents)
 
@@ -223,13 +263,24 @@ class DocumentPreprocessor:
 
     def process_documents(
             self,
-            documents: List[Document]
+            documents: List[Document],
+            source: Optional[str] = None,
+            topic: Optional[str] = None,
+            date: Optional[str] = None,
+            metadata: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
         if self.clean_text:
             for doc in documents:
                 doc.page_content = self._clean_document_text(doc.page_content)
 
         splits = self._split_documents(documents)
+        splits = self._enrich_metadata(
+            splits,
+            source=source,
+            topic=topic,
+            date=date,
+            additional_metadata=metadata
+        )
 
         if self.remove_duplicates:
             splits = self._deduplicate_documents(splits)
