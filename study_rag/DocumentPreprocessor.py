@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any, Literal
+from typing import List, Optional, Dict, Any, Literal, Tuple
 from pathlib import Path
 import re
 import unicodedata
@@ -22,10 +22,6 @@ from langchain_text_splitters import (
     CharacterTextSplitter,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s'
-)
 
 class DocumentPreprocessor:
     """
@@ -39,72 +35,13 @@ class DocumentPreprocessor:
     - Дедупликация документов (exact hash, minhash)
     - Специальная обработка таблиц (сохранение, слияние фрагментов)
     - Логирование метаданных и статистики
-
-    Примеры использования:
-
-    Базовое использование:
-        >>> preprocessor = DocumentPreprocessor(
-        ...     chunk_size=1000,
-        ...     chunk_overlap=200,
-        ...     chunking_strategy="recursive"
-        ... )
-        >>> 
-        >>> # Обработка файла
-        >>> docs = preprocessor.process_file(
-        ...     file_path="document.pdf",
-        ...     topic="Financial Report",
-        ...     date="2024-01-15"
-        ... )
-        >>> 
-        >>> # Обработка текста
-        >>> docs = preprocessor.process_text(
-        ...     text="Your text here",
-        ...     source="manual_input",
-        ...     metadata={"author": "John Doe"}
-        ... )
-
-    Обработка таблиц:
-        >>> preprocessor = DocumentPreprocessor()
-        >>> docs = preprocessor.process_file("data.xlsx")
-        >>> 
-        >>> # Слияние фрагментов таблиц
-        >>> docs = preprocessor.merge_table_fragments(docs)
-        >>> 
-        >>> # Добавление метаданных таблицы
-        >>> table_info = {
-        ...     'title': 'Sales Report Q4',
-        ...     'columns': ['Date', 'Product', 'Amount', 'Region'],
-        ...     'rows': 150,
-        ...     'preceding_text': 'Summary of sales for Q4 2024'
-        ... }
-        >>> for doc in docs:
-        ...     preprocessor.add_table_metadata(doc, table_info)
-
-    С логированием:
-        >>> preprocessor = DocumentPreprocessor(log_metadata_sample=True)
-        >>> docs = preprocessor.process_file("document.pdf")
-        >>> # Выведет метаданные первого и последнего документа
-
-    С дедупликацией:
-        >>> # Точная дедупликация по хэшу (быстрее)
-        >>> preprocessor = DocumentPreprocessor(
-        ...     remove_duplicates=True,
-        ...     deduplication_method="exact"
-        ... )
-        >>> 
-        >>> # Дедупликация по MinHash (находит похожие тексты)
-        >>> preprocessor = DocumentPreprocessor(
-        ...     remove_duplicates=True,
-        ...     deduplication_method="minhash",
-        ...     similarity_threshold=0.85
-        ... )
-        >>> docs = preprocessor.process_file("document.pdf")
     """
 
     def __init__(
             self,
+            file_path: Optional[str] = None,
             chunk_size: int = 1000,
-            chunk_overlap: int = 200,
+            chunk_overlap: int = 100,
             chunking_strategy: Literal["recursive", "token", "character", "markdown"] = "recursive",
             clean_text: bool = True,
             remove_duplicates: bool = False,
@@ -114,6 +51,7 @@ class DocumentPreprocessor:
             doc_language: str = "en",
             log_metadata_sample: bool = False,
     ):
+        self.file_path = file_path
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.chunking_strategy = chunking_strategy
@@ -194,7 +132,7 @@ class DocumentPreprocessor:
             bool(re.search(r'\t{2,}', text)) or \
             bool(re.search(r'^\s*[\w\s]+\s{2,}[\w\s]+', text))
 
-    def _deduplicate_exact(self, documents: List[Document]) -> tuple[List[Document], Dict[str, int]]:
+    def _deduplicate_exact(self, documents: List[Document]) -> Tuple[List[Document], Dict[str, int]]:
         unique_texts = set()
         unique_docs = []
         stats = {'duplicates': 0, 'tables_preserved': 0}
@@ -213,45 +151,35 @@ class DocumentPreprocessor:
 
         return unique_docs, stats
 
-    def _deduplicate_minhash(self, documents: List[Document]) -> tuple[List[Document], Dict[str, int]]:
+    def _deduplicate_minhash(self, documents: List[Document]) -> Tuple[List[Document], Dict[str, int]]:
         try:
-            from datasketch import MinHash
+            from datasketch import MinHash, MinHashLSH
         except ImportError:
             raise ImportError(
-                "datasketch is required for minhash deduplication. "
+                "MinHash deduplication requires 'datasketch' package. "
                 "Install it with: pip install datasketch"
             )
 
-        def get_minhash(text: str, num_perm: int = 128) -> MinHash:
-            m = MinHash(num_perm=num_perm)
-            for word in text.split():
-                m.update(word.encode('utf8'))
-            return m
+        def create_minhash(text: str, num_perm: int = 128) -> MinHash:
+            mh = MinHash(num_perm=num_perm)
+            for word in text.lower().split():
+                mh.update(word.encode('utf-8'))
+            return mh
 
         unique_docs = []
-        seen_hashes = []
+        lsh = MinHashLSH(threshold=self.similarity_threshold, num_perm=128)
         stats = {'duplicates': 0, 'tables_preserved': 0}
 
-        for doc in documents:
+        for idx, doc in enumerate(documents):
             text = doc.page_content.strip()
+            minhash = create_minhash(text)
+            similar = lsh.query(minhash)
 
-            if self._is_table_fragment(text):
+            if not similar:
+                lsh.insert(f"doc_{idx}", minhash)
                 unique_docs.append(doc)
-                stats['tables_preserved'] += 1
-                continue
-
-            text_hash = get_minhash(text)
-            is_duplicate = False
-
-            for seen_hash in seen_hashes:
-                similarity = text_hash.jaccard(seen_hash)
-                if similarity >= self.similarity_threshold:
-                    is_duplicate = True
-                    break
-
-            if not is_duplicate:
-                unique_docs.append(doc)
-                seen_hashes.append(text_hash)
+                if self._is_table_fragment(text):
+                    stats['tables_preserved'] += 1
             else:
                 stats['duplicates'] += 1
 
@@ -263,9 +191,9 @@ class DocumentPreprocessor:
         else:
             unique_docs, stats = self._deduplicate_minhash(documents)
 
-        self.logger.info(f"📊 Статистика дедупликации:")
-        self.logger.info(f"   Первоначально: {len(documents)} чанков")
-        self.logger.info(f"   Удалено дубликатов: {stats['duplicates']}")
+        self.logger.info(f"🔍 Дедупликация ({self.deduplication_method}):")
+        self.logger.info(f"   Всего чанков: {len(documents)}")
+        self.logger.info(f"   Дубликатов: {stats['duplicates']}")
         self.logger.info(f"   Сохранено таблиц: {stats['tables_preserved']}")
         self.logger.info(f"   Осталось: {len(unique_docs)} чанков")
 
@@ -382,15 +310,14 @@ class DocumentPreprocessor:
 
         return splits
 
-    def process_file(
+    def _process_pipeline(
             self,
-            file_path: str,
+            documents: List[Document],
+            source: Optional[str] = None,
             topic: Optional[str] = None,
             date: Optional[str] = None,
             metadata: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
-        documents = self._load_document(file_path)
-
         if self.clean_text:
             for doc in documents:
                 doc.page_content = self._clean_document_text(doc.page_content)
@@ -398,7 +325,7 @@ class DocumentPreprocessor:
         splits = self._split_documents(documents)
         splits = self._enrich_metadata(
             splits,
-            source=file_path,
+            source=source,
             topic=topic,
             date=date,
             additional_metadata=metadata
@@ -409,6 +336,20 @@ class DocumentPreprocessor:
 
         self._log_metadata_sample(splits)
         return splits
+
+    def process_file(
+            self,
+            file_path: Optional[str] = None,
+            topic: Optional[str] = None,
+            date: Optional[str] = None,
+            metadata: Optional[Dict[str, Any]] = None
+    ) -> List[Document]:
+        path = file_path or self.file_path
+        if not path:
+            raise ValueError("file_path must be provided either in __init__ or process_file")
+
+        documents = self._load_document(path)
+        return self._process_pipeline(documents, source=path, topic=topic, date=date, metadata=metadata)
 
     def process_text(
             self,
@@ -467,21 +408,4 @@ class DocumentPreprocessor:
             date: Optional[str] = None,
             metadata: Optional[Dict[str, Any]] = None
     ) -> List[Document]:
-        if self.clean_text:
-            for doc in documents:
-                doc.page_content = self._clean_document_text(doc.page_content)
-
-        splits = self._split_documents(documents)
-        splits = self._enrich_metadata(
-            splits,
-            source=source,
-            topic=topic,
-            date=date,
-            additional_metadata=metadata
-        )
-
-        if self.remove_duplicates:
-            splits = self._deduplicate_documents(splits)
-
-        self._log_metadata_sample(splits)
-        return splits
+        return self._process_pipeline(documents, source=source, topic=topic, date=date, metadata=metadata)

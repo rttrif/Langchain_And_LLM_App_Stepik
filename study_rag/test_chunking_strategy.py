@@ -52,7 +52,7 @@ questions = [
     "как их верно использовать вместе"
 ]
 
-file_path = "ORDER_FLOW_Trading_Setups.pdf"
+file_path = "../ORDER_FLOW_Trading_Setups.pdf"
 
 
 def batch_documents(docs: List[Document], batch_size: int = 50):
