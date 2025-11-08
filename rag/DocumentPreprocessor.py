@@ -90,7 +90,7 @@ class DocumentPreprocessor:
             '.doc': UnstructuredWordDocumentLoader,
             '.txt': TextLoader,
             '.md': UnstructuredMarkdownLoader,
-            '.csv': lambda path: CSVLoader(file_path=path),
+            '.csv': CSVLoader,
             '.html': UnstructuredHTMLLoader,
             '.xlsx': UnstructuredExcelLoader,
             '.xls': UnstructuredExcelLoader,
@@ -107,7 +107,10 @@ class DocumentPreprocessor:
         try:
             from datasketch import MinHash
         except ImportError:
-            return documents
+            raise ImportError(
+                "datasketch is required for deduplication. "
+                "Install it with: pip install datasketch"
+            )
 
         def get_minhash(text: str, num_perm: int = 128) -> MinHash:
             m = MinHash(num_perm=num_perm)
@@ -134,6 +137,27 @@ class DocumentPreprocessor:
 
         return unique_docs
 
+    def _split_documents(self, documents: List[Document]) -> List[Document]:
+        if self.chunking_strategy == "markdown":
+            splits = []
+            for doc in documents:
+                markdown_splits: List[Document] = self._text_splitter.split_text(doc.page_content)
+                for split_doc in markdown_splits:
+                    splits.append(Document(
+                        page_content=split_doc.page_content,
+                        metadata={**doc.metadata, **split_doc.metadata}
+                    ))
+
+            recursive_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+            )
+            splits = recursive_splitter.split_documents(splits)
+        else:
+            splits = self._text_splitter.split_documents(documents)
+
+        return splits
+
     def process_file(
             self,
             file_path: str,
@@ -145,7 +169,7 @@ class DocumentPreprocessor:
             for doc in documents:
                 doc.page_content = self._clean_document_text(doc.page_content)
 
-        splits = self._text_splitter.split_documents(documents)
+        splits = self._split_documents(documents)
 
         if metadata:
             for doc in splits:
@@ -168,15 +192,29 @@ class DocumentPreprocessor:
         if self.clean_text:
             text = self._clean_document_text(text)
 
-        splits = self._text_splitter.split_text(text)
-
-        documents = [
-            Document(
-                page_content=chunk,
-                metadata=metadata or {}
+        if self.chunking_strategy == "markdown":
+            markdown_splits: List[Document] = self._text_splitter.split_text(text)
+            documents = [
+                Document(
+                    page_content=split_doc.page_content,
+                    metadata={**(metadata or {}), **split_doc.metadata}
+                )
+                for split_doc in markdown_splits
+            ]
+            recursive_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
             )
-            for chunk in splits
-        ]
+            documents = recursive_splitter.split_documents(documents)
+        else:
+            splits = self._text_splitter.split_text(text)
+            documents = [
+                Document(
+                    page_content=chunk,
+                    metadata=metadata or {}
+                )
+                for chunk in splits
+            ]
 
         if self.remove_duplicates:
             documents = self._deduplicate_documents(documents)
@@ -191,7 +229,7 @@ class DocumentPreprocessor:
             for doc in documents:
                 doc.page_content = self._clean_document_text(doc.page_content)
 
-        splits = self._text_splitter.split_documents(documents)
+        splits = self._split_documents(documents)
 
         if self.remove_duplicates:
             splits = self._deduplicate_documents(splits)
