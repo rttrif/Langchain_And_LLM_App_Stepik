@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import unicodedata
 import logging
+import hashlib
 
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
@@ -21,6 +22,10 @@ from langchain_text_splitters import (
     CharacterTextSplitter,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s'
+)
 
 class DocumentPreprocessor:
     """
@@ -31,9 +36,9 @@ class DocumentPreprocessor:
     - Очистка текста (удаление URL, email, HTML тегов)
     - Разбиение на чанки (recursive, token, character, markdown)
     - Обогащение метаданных (source, page, topic, date, language)
-    - Дедупликация документов
-    - Логирование метаданных
-    - Специальная обработка таблиц
+    - Дедупликация документов (exact hash, minhash)
+    - Специальная обработка таблиц (сохранение, слияние фрагментов)
+    - Логирование метаданных и статистики
 
     Примеры использования:
 
@@ -62,6 +67,9 @@ class DocumentPreprocessor:
         >>> preprocessor = DocumentPreprocessor()
         >>> docs = preprocessor.process_file("data.xlsx")
         >>> 
+        >>> # Слияние фрагментов таблиц
+        >>> docs = preprocessor.merge_table_fragments(docs)
+        >>> 
         >>> # Добавление метаданных таблицы
         >>> table_info = {
         ...     'title': 'Sales Report Q4',
@@ -78,8 +86,16 @@ class DocumentPreprocessor:
         >>> # Выведет метаданные первого и последнего документа
 
     С дедупликацией:
+        >>> # Точная дедупликация по хэшу (быстрее)
         >>> preprocessor = DocumentPreprocessor(
         ...     remove_duplicates=True,
+        ...     deduplication_method="exact"
+        ... )
+        >>> 
+        >>> # Дедупликация по MinHash (находит похожие тексты)
+        >>> preprocessor = DocumentPreprocessor(
+        ...     remove_duplicates=True,
+        ...     deduplication_method="minhash",
         ...     similarity_threshold=0.85
         ... )
         >>> docs = preprocessor.process_file("document.pdf")
@@ -92,6 +108,7 @@ class DocumentPreprocessor:
             chunking_strategy: Literal["recursive", "token", "character", "markdown"] = "recursive",
             clean_text: bool = True,
             remove_duplicates: bool = False,
+            deduplication_method: Literal["exact", "minhash"] = "exact",
             similarity_threshold: float = 0.95,
             encoding_name: str = "cl100k_base",
             doc_language: str = "en",
@@ -102,6 +119,7 @@ class DocumentPreprocessor:
         self.chunking_strategy = chunking_strategy
         self.clean_text = clean_text
         self.remove_duplicates = remove_duplicates
+        self.deduplication_method = deduplication_method
         self.similarity_threshold = similarity_threshold
         self.encoding_name = encoding_name
         self.doc_language = doc_language
@@ -171,12 +189,36 @@ class DocumentPreprocessor:
         loader = loader_class(file_path)
         return loader.load()
 
-    def _deduplicate_documents(self, documents: List[Document]) -> List[Document]:
+    def _is_table_fragment(self, text: str) -> bool:
+        return bool(re.search(r'\|.*\|', text)) or \
+            bool(re.search(r'\t{2,}', text)) or \
+            bool(re.search(r'^\s*[\w\s]+\s{2,}[\w\s]+', text))
+
+    def _deduplicate_exact(self, documents: List[Document]) -> tuple[List[Document], Dict[str, int]]:
+        unique_texts = set()
+        unique_docs = []
+        stats = {'duplicates': 0, 'tables_preserved': 0}
+
+        for doc in documents:
+            text = doc.page_content.strip()
+            text_hash = hashlib.md5(text.encode('utf-8')).hexdigest()
+
+            if text_hash not in unique_texts:
+                unique_texts.add(text_hash)
+                unique_docs.append(doc)
+                if self._is_table_fragment(text):
+                    stats['tables_preserved'] += 1
+            else:
+                stats['duplicates'] += 1
+
+        return unique_docs, stats
+
+    def _deduplicate_minhash(self, documents: List[Document]) -> tuple[List[Document], Dict[str, int]]:
         try:
             from datasketch import MinHash
         except ImportError:
             raise ImportError(
-                "datasketch is required for deduplication. "
+                "datasketch is required for minhash deduplication. "
                 "Install it with: pip install datasketch"
             )
 
@@ -188,9 +230,17 @@ class DocumentPreprocessor:
 
         unique_docs = []
         seen_hashes = []
+        stats = {'duplicates': 0, 'tables_preserved': 0}
 
         for doc in documents:
-            text_hash = get_minhash(doc.page_content)
+            text = doc.page_content.strip()
+
+            if self._is_table_fragment(text):
+                unique_docs.append(doc)
+                stats['tables_preserved'] += 1
+                continue
+
+            text_hash = get_minhash(text)
             is_duplicate = False
 
             for seen_hash in seen_hashes:
@@ -202,8 +252,57 @@ class DocumentPreprocessor:
             if not is_duplicate:
                 unique_docs.append(doc)
                 seen_hashes.append(text_hash)
+            else:
+                stats['duplicates'] += 1
+
+        return unique_docs, stats
+
+    def _deduplicate_documents(self, documents: List[Document]) -> List[Document]:
+        if self.deduplication_method == "exact":
+            unique_docs, stats = self._deduplicate_exact(documents)
+        else:
+            unique_docs, stats = self._deduplicate_minhash(documents)
+
+        self.logger.info(f"📊 Статистика дедупликации:")
+        self.logger.info(f"   Первоначально: {len(documents)} чанков")
+        self.logger.info(f"   Удалено дубликатов: {stats['duplicates']}")
+        self.logger.info(f"   Сохранено таблиц: {stats['tables_preserved']}")
+        self.logger.info(f"   Осталось: {len(unique_docs)} чанков")
 
         return unique_docs
+
+    def merge_table_fragments(self, documents: List[Document]) -> List[Document]:
+        merged = []
+        current_table = []
+
+        for doc in documents:
+            if self._is_table_fragment(doc.page_content):
+                current_table.append(doc)
+            else:
+                if current_table:
+                    merged_doc = Document(
+                        page_content="\n".join([d.page_content for d in current_table]),
+                        metadata=current_table[0].metadata
+                    )
+                    merged_doc.metadata['content_type'] = 'table'
+                    merged_doc.metadata['merged_fragments'] = len(current_table)
+                    merged.append(merged_doc)
+                    current_table = []
+                merged.append(doc)
+
+        if current_table:
+            merged_doc = Document(
+                page_content="\n".join([d.page_content for d in current_table]),
+                metadata=current_table[0].metadata
+            )
+            merged_doc.metadata['content_type'] = 'table'
+            merged_doc.metadata['merged_fragments'] = len(current_table)
+            merged.append(merged_doc)
+
+        if len(merged) < len(documents):
+            self.logger.info(f"🔗 Объединено фрагментов таблиц: {len(documents) - len(merged)}")
+
+        return merged
 
     def _log_metadata_sample(self, documents: List[Document]) -> None:
         if not self.log_metadata_sample or not documents:
