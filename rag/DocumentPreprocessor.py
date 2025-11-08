@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any, Literal
 from pathlib import Path
 import re
 import unicodedata
+import logging
 
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
@@ -22,6 +23,68 @@ from langchain_text_splitters import (
 
 
 class DocumentPreprocessor:
+    """
+    Препроцессор документов для RAG систем с поддержкой различных форматов и стратегий чанкинга.
+
+    Функциональность:
+    - Загрузка документов (PDF, DOCX, TXT, MD, CSV, HTML, XLSX)
+    - Очистка текста (удаление URL, email, HTML тегов)
+    - Разбиение на чанки (recursive, token, character, markdown)
+    - Обогащение метаданных (source, page, topic, date, language)
+    - Дедупликация документов
+    - Логирование метаданных
+    - Специальная обработка таблиц
+
+    Примеры использования:
+
+    Базовое использование:
+        >>> preprocessor = DocumentPreprocessor(
+        ...     chunk_size=1000,
+        ...     chunk_overlap=200,
+        ...     chunking_strategy="recursive"
+        ... )
+        >>> 
+        >>> # Обработка файла
+        >>> docs = preprocessor.process_file(
+        ...     file_path="document.pdf",
+        ...     topic="Financial Report",
+        ...     date="2024-01-15"
+        ... )
+        >>> 
+        >>> # Обработка текста
+        >>> docs = preprocessor.process_text(
+        ...     text="Your text here",
+        ...     source="manual_input",
+        ...     metadata={"author": "John Doe"}
+        ... )
+
+    Обработка таблиц:
+        >>> preprocessor = DocumentPreprocessor()
+        >>> docs = preprocessor.process_file("data.xlsx")
+        >>> 
+        >>> # Добавление метаданных таблицы
+        >>> table_info = {
+        ...     'title': 'Sales Report Q4',
+        ...     'columns': ['Date', 'Product', 'Amount', 'Region'],
+        ...     'rows': 150,
+        ...     'preceding_text': 'Summary of sales for Q4 2024'
+        ... }
+        >>> for doc in docs:
+        ...     preprocessor.add_table_metadata(doc, table_info)
+
+    С логированием:
+        >>> preprocessor = DocumentPreprocessor(log_metadata_sample=True)
+        >>> docs = preprocessor.process_file("document.pdf")
+        >>> # Выведет метаданные первого и последнего документа
+
+    С дедупликацией:
+        >>> preprocessor = DocumentPreprocessor(
+        ...     remove_duplicates=True,
+        ...     similarity_threshold=0.85
+        ... )
+        >>> docs = preprocessor.process_file("document.pdf")
+    """
+
     def __init__(
             self,
             chunk_size: int = 1000,
@@ -32,6 +95,7 @@ class DocumentPreprocessor:
             similarity_threshold: float = 0.95,
             encoding_name: str = "cl100k_base",
             doc_language: str = "en",
+            log_metadata_sample: bool = False,
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -41,7 +105,9 @@ class DocumentPreprocessor:
         self.similarity_threshold = similarity_threshold
         self.encoding_name = encoding_name
         self.doc_language = doc_language
+        self.log_metadata_sample = log_metadata_sample
         self._text_splitter = self._get_text_splitter()
+        self.logger = logging.getLogger(__name__)
 
     def _get_text_splitter(self):
         if self.chunking_strategy == "recursive":
@@ -139,6 +205,37 @@ class DocumentPreprocessor:
 
         return unique_docs
 
+    def _log_metadata_sample(self, documents: List[Document]) -> None:
+        if not self.log_metadata_sample or not documents:
+            return
+
+        self.logger.info(f"Total documents: {len(documents)}")
+        self.logger.info("=" * 80)
+        self.logger.info("FIRST DOCUMENT:")
+        self.logger.info(f"Content preview: {documents[0].page_content[:200]}...")
+        self.logger.info(f"Metadata: {documents[0].metadata}")
+        self.logger.info("=" * 80)
+
+        if len(documents) > 1:
+            self.logger.info("LAST DOCUMENT:")
+            self.logger.info(f"Content preview: {documents[-1].page_content[:200]}...")
+            self.logger.info(f"Metadata: {documents[-1].metadata}")
+            self.logger.info("=" * 80)
+
+    def add_table_metadata(
+            self,
+            doc: Document,
+            table_info: Dict[str, Any]
+    ) -> Document:
+        doc.metadata.update({
+            'content_type': 'table',
+            'table_name': table_info.get('title', 'Unknown'),
+            'columns': list(table_info.get('columns', [])),
+            'row_count': table_info.get('rows', 0),
+            'table_context': table_info.get('preceding_text', ''),
+        })
+        return doc
+
     def _enrich_metadata(
             self,
             documents: List[Document],
@@ -211,6 +308,7 @@ class DocumentPreprocessor:
         if self.remove_duplicates:
             splits = self._deduplicate_documents(splits)
 
+        self._log_metadata_sample(splits)
         return splits
 
     def process_text(
@@ -259,6 +357,7 @@ class DocumentPreprocessor:
         if self.remove_duplicates:
             documents = self._deduplicate_documents(documents)
 
+        self._log_metadata_sample(documents)
         return documents
 
     def process_documents(
@@ -285,4 +384,5 @@ class DocumentPreprocessor:
         if self.remove_duplicates:
             splits = self._deduplicate_documents(splits)
 
+        self._log_metadata_sample(splits)
         return splits
