@@ -9,7 +9,7 @@ from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from datasets import Dataset
 
-from basic_naive_rag import llm, retriever, prompt, StrOutputParser, embed_model
+from basic_rag import llm, retriever, prompt, StrOutputParser, embed_model
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 

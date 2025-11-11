@@ -12,7 +12,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from DocumentPreprocessor import DocumentPreprocessor
-from hybrid_retriever import HybridRetriever, AdvancedHybridRetriever
+from HybridRetriever import HybridRetriever, AdvancedHybridRetriever
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
