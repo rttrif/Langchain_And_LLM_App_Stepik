@@ -12,6 +12,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 
 from DocumentPreprocessor import DocumentPreprocessor
+from hybrid_retriever import HybridRetriever, AdvancedHybridRetriever
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -64,6 +65,33 @@ retriever = vectorstore.as_retriever(
     search_kwargs={"k": 5, "score_threshold": 0.4}
 )
 logging.info("Retriever initialized")
+
+hybrid_retriever = HybridRetriever(
+    vectorstore=vectorstore,
+    documents=docs,
+    fusion="rrf",
+    k_bm25=12,
+    k_vector=12,
+    cross_encoder_name="cross-encoder/ms-marco-MiniLM-L-6-v2"
+)
+logging.info("HybridRetriever initialized")
+
+parent_documents = {f"parent_{i}": doc for i, doc in enumerate(docs)}
+for i, doc in enumerate(docs):
+    doc.metadata["parent_id"] = f"parent_{i}"
+
+advanced_hybrid_retriever = AdvancedHybridRetriever(
+    child_vectorstore=vectorstore,
+    child_documents=docs,
+    parent_documents=parent_documents,
+    llm=llm,
+    fusion="rrf",
+    k_bm25=12,
+    k_vector=12,
+    cross_encoder_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+    use_contextual_compression=True
+)
+logging.info("AdvancedHybridRetriever initialized")
 
 store = {}
 last_retrieved_docs = []
@@ -208,14 +236,50 @@ def print_sources(docs):
         print("-" * 80)
 
 
+def compare_retrievers(query: str, k: int = 5):
+    print(f"\n{'=' * 100}")
+    print(f"СРАВНЕНИЕ РЕТРИВЕРОВ для запроса: '{query}'")
+    print(f"{'=' * 100}")
+
+    print("\n1. БАЗОВЫЙ RETRIEVER (Vector similarity):")
+    print("-" * 100)
+    base_docs = retriever.invoke(query)
+    for i, doc in enumerate(base_docs[:k], 1):
+        print(f"[{i}] {doc.page_content[:200]}...")
+
+    print(f"\n2. HYBRID RETRIEVER (BM25 + Vector + Cross-encoder):")
+    print("-" * 100)
+    hybrid_results = hybrid_retriever.retrieve(query, k_final=k)
+    for i, (doc, score) in enumerate(hybrid_results, 1):
+        print(f"[{i}] Score: {score:.4f} | {doc.page_content[:200]}...")
+
+    print(f"\n3. ADVANCED HYBRID RETRIEVER (Parent-Child + Compression):")
+    print("-" * 100)
+    advanced_results = advanced_hybrid_retriever.retrieve(query, k_final=k)
+    for i, (doc, score) in enumerate(advanced_results, 1):
+        print(f"[{i}] Score: {score:.4f} | {doc.page_content[:200]}...")
+
+    print(f"\n{'=' * 100}\n")
+
+
 if __name__ == "__main__":
     session_id = "user_session_1"
+
+    test_query = "what kind of trade setups exist?"
+    print("\n" + "=" * 100)
+    print("ДЕМОНСТРАЦИЯ СРАВНЕНИЯ РЕТРИВЕРОВ")
+    print("=" * 100)
+    compare_retrievers(test_query, k=5)
 
     queries = [
         "what kind of trade setups exist?",
         "tell me more about the first one",
         "how to identify it?"
     ]
+
+    print("\n" + "=" * 100)
+    print("КОНВЕРСАЦИОННЫЙ RAG С БАЗОВЫМ РЕТРИВЕРОМ")
+    print("=" * 100)
 
     for query in queries:
         print(f"\n{'=' * 80}")
