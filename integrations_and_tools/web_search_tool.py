@@ -1,11 +1,19 @@
 import hashlib
 import json
 import time
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from langchain.tools import tool
+from dotenv import load_dotenv
+from langchain_core.tools import tool
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
+
+load_dotenv()
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # =========================
 # TTL + LRU кэш (в памяти)
@@ -78,11 +86,15 @@ def _ddg_search(query: str, max_results: int = 5) -> List[Dict[str, str]]:
     """
     DuckDuckGo text search. Возвращает [{title,url,snippet}, ...].
     """
-    from duckduckgo_search import DDGS  # импорт внутри, чтобы не требовать его, если инструмент не используется
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        from duckduckgo_search import DDGS
+
     out: List[Dict[str, str]] = []
-    # timelimit="y" — за последний год; можно убрать/поменять
     with DDGS() as ddgs:
-        for r in ddgs.text(query, max_results=max_results, safesearch="moderate", timelimit="y"):
+        results = ddgs.text(query, max_results=max_results, region="wt-wt", safesearch="off")
+        for r in results:
             out.append({
                 "title": r.get("title") or "",
                 "url": r.get("href") or r.get("url") or "",
@@ -143,47 +155,178 @@ def make_web_search_tools() -> List:
 
 
 # =========================
+# LLM-агент с веб-поиском
+# =========================
+
+class WebSearchAssistant:
+    """
+    Ассистент с веб-поиском на основе Ollama.
+    Использует упрощенную схему: анализ вопроса -> поиск -> ответ с источниками.
+    """
+
+    def __init__(
+        self,
+        model: str = "deepseek-v3.1:671b-cloud",
+        base_url: str = "https://ollama.com",
+        temperature: float = 0.0
+    ):
+        self.llm = ChatOllama(
+            model=model,
+            base_url=base_url,
+            temperature=temperature
+        )
+
+    def ask(self, query: str, k: int = 5) -> str:
+        """
+        Задать вопрос ассистенту.
+        Автоматически выполняет поиск и формирует ответ.
+        """
+        try:
+            # Выполняем поиск
+            search_result = web_search.invoke({"query": query, "k": k})
+            search_data = json.loads(search_result)
+
+            if not search_data.get("ok"):
+                return f"Ошибка поиска: {search_data.get('error', 'unknown')}"
+
+            results = search_data["results"]
+
+            # Если результатов нет
+            if not results:
+                return "Поиск не вернул результатов. Попробуйте переформулировать вопрос."
+
+            # Форматируем результаты для LLM
+            formatted_results = "\n\n".join([
+                f"[{r['rank']}] {r['title']}\n{r['snippet']}\nURL: {r['url']}"
+                for r in results
+            ])
+
+            # Создаем промпт для ответа
+            template = """Ты - экспертный ассистент. На основе результатов веб-поиска дай полный и точный ответ на вопрос.
+
+ВАЖНО:
+- Используй только информацию из результатов поиска
+- Указывай номера источников [1], [2] после каждого факта
+- Если информация неполная или противоречива, укажи это
+- Структурируй ответ логично
+- Не придумывай информацию
+
+Вопрос: {question}
+
+Результаты поиска:
+{search_results}
+
+Ответ:"""
+
+            prompt = ChatPromptTemplate.from_template(template)
+            chain = prompt | self.llm | StrOutputParser()
+
+            answer = chain.invoke({
+                "question": query,
+                "search_results": formatted_results
+            })
+
+            # Добавляем список источников
+            sources = "\n\nИсточники:\n" + "\n".join([
+                f"[{r['rank']}] {r['title']} - {r['url']}"
+                for r in results
+            ])
+
+            return answer + sources
+
+        except Exception as e:
+            logging.error(f"Error in ask: {e}")
+            return f"Ошибка при обработке запроса: {e}"
+
+
+def create_search_chain():
+    """
+    Создает простую цепочку: поиск → форматирование → LLM → ответ.
+    Без агента, для более простых случаев.
+    """
+    llm = ChatOllama(
+        model="deepseek-v3.1:671b-cloud",
+        base_url="https://ollama.com",
+        temperature=0.0
+    )
+
+    template = """На основе результатов веб-поиска дай точный и полный ответ на вопрос.
+
+ВАЖНО:
+- Используй только информацию из результатов поиска
+- Указывай номера источников [1], [2] после каждого факта
+- Если информации недостаточно, так и скажи
+- Не придумывай информацию
+
+Вопрос: {question}
+
+Результаты поиска:
+{search_results}
+
+Ответ:"""
+
+    prompt = ChatPromptTemplate.from_template(template)
+    chain = prompt | llm | StrOutputParser()
+    return chain
+
+
+def answer_with_search(question: str, k: int = 5) -> str:
+    """
+    Простая функция: выполняет поиск и формирует ответ через LLM.
+    """
+    search_result = web_search.invoke({"query": question, "k": k})
+    search_data = json.loads(search_result)
+
+    if not search_data.get("ok"):
+        return f"Ошибка поиска: {search_data.get('error', 'unknown')}"
+
+    results = search_data["results"]
+    formatted_results = "\n\n".join([
+        f"[{r['rank']}] {r['title']}\n{r['snippet']}\nURL: {r['url']}"
+        for r in results
+    ])
+
+    chain = create_search_chain()
+    answer = chain.invoke({
+        "question": question,
+        "search_results": formatted_results
+    })
+
+    sources = "\n\nИсточники:\n" + "\n".join([
+        f"[{r['rank']}] {r['title']} - {r['url']}"
+        for r in results
+    ])
+
+    return answer + sources
+
+
+# =========================
 # Пример использования
 # =========================
 
 if __name__ == "__main__":
-    # 1) голый вызов инструмента (2 запроса подряд → второй из кэша)
-    print("— First call (MISS):")
-    out1 = web_search.run("president of Brazil 2025", k=3)
-    print(out1[:300], "...\n")
+    print("=== Тест 1: Простая цепочка (поиск + LLM) ===\n")
+    question1 = "Что такое график Footprint в тейдинге?"
+    print(f"Вопрос: {question1}\n")
+    answer1 = answer_with_search(question1, k=3)
+    print(f"Ответ:\n{answer1}\n")
+    print("=" * 80)
 
-    print("— Second call (HIT):")
-    out2 = web_search.run("president of Brazil 2025", k=3)
-    print(out2[:300], "...\n")
+    print("\n=== Тест 2: Web Search Assistant (агент) ===\n")
+    assistant = WebSearchAssistant()
+    question2 = "Как написать код для графика Footprint на python?"
+    print(f"Вопрос: {question2}\n")
+    answer2 = assistant.ask(question2)
+    print(f"Ответ:\n{answer2}\n")
+    print("=" * 80)
 
-    # 2) мини-«диалог» в стиле ReAct (симулируем логи)
-    # В реальном агенте эти шаги делаются автоматически, здесь — иллюстрация.
-    print("=== Demo: assistant with web_search ===")
-    user_q = "Кто сейчас является президентом Бразилии?"
-    print(f"User: {user_q}")
+    print("\n=== Тест 3: Кэширование ===\n")
+    print("Первый запрос (MISS):")
+    out1 = web_search.invoke({"query": "latest AI news 2025", "k": 3})
+    data1 = json.loads(out1)
+    print(f"Cached: {data1.get('cached', False)}")
 
-    print('Assistant (thinking): локальной информации нет → Action: web_search')
-    ws_json = web_search.run("президент Бразилии 2025", k=5)
-    ws = json.loads(ws_json)
-    if ws.get("ok"):
-        results = ws["results"]
-        # Сформируем краткий ответ + цитаты [1], [2]
-        # (В реальном ассистенте ответ генерирует LLM, здесь просто пример форматирования)
-        guess_name = None
-        for r in results:
-            t = (r["title"] + " " + r["snippet"]).lower()
-            if "lula" in t or "лула" in t or "luiz inácio" in t or "луис инасиу" in t:
-                guess_name = "Луис Инасиу Лула да Силва"
-                break
-
-        if guess_name:
-            # сослаться на первый/лучший источник
-            cite = f"[1] {results[0]['title']} — {results[0]['url']}"
-            print(f"Assistant: По данным веб-поиска, президент Бразилии сейчас — {guess_name}. См. источники ниже.")
-            print("Sources:")
-            for r in results[:3]:
-                print(f"  [{r['rank']}] {r['title']} — {r['url']}")
-        else:
-            print("Assistant: Похоже, результаты неоднозначны. Нужен дополнительный уточняющий запрос.")
-    else:
-        print("Assistant: Не удалось выполнить веб-поиск. Попробуйте позже.")
+    print("\nВторой запрос (HIT):")
+    out2 = web_search.invoke({"query": "latest AI news 2025", "k": 3})
+    data2 = json.loads(out2)
+    print(f"Cached: {data2.get('cached', False)}")
