@@ -262,9 +262,13 @@ def make_tools() -> List:
 
 # Тест «в лоб» (ручная проверка без LLM)
 if __name__ == "__main__":
+    print('+'*100, '\n')
     print("Calculator:", calculator.run("2*(3+4) + sqrt(16)"))
+    print('+' * 100, '\n')
     print("FX:", fx_rate.run({"base": "USD", "quote": "RUB"}))
+    print('+' * 100, '\n')
     print("Weather:", weather.run("Brisbane")[:200], "...")
-    # Создайте ./sandbox и положите туда файл test.txt для примера:
-    # print("Read:", read_file.run("test.txt")[:200])
+    print('+' * 100, '\n')
+    print("Read:", read_file.run("test_file.md")[:200])
+    print('+' * 100, '\n')
     print("Search:", web_search.run("LangChain RAG hybrid search")[:200], "...")
