@@ -263,7 +263,7 @@ def make_tools() -> List:
 # Тест «в лоб» (ручная проверка без LLM)
 if __name__ == "__main__":
     print("Calculator:", calculator.run("2*(3+4) + sqrt(16)"))
-    print("FX:", fx_rate.run("USD", "RUB"))
+    print("FX:", fx_rate.run({"base": "USD", "quote": "RUB"}))
     print("Weather:", weather.run("Brisbane")[:200], "...")
     # Создайте ./sandbox и положите туда файл test.txt для примера:
     # print("Read:", read_file.run("test.txt")[:200])
