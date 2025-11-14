@@ -1,0 +1,12 @@
+langchain_ollama
+langchain_core
+langchain_community
+python-dotenv
+qdrant-client
+langchain_qdrant
+spacy
+sentence-transformers
+PyPDF2
+datasketch
+pandas
+langchain
