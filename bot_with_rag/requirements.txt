@@ -1,0 +1,15 @@
+langchain
+langchain-community
+langchain-core
+langchain-ollama
+langchain-qdrant
+qdrant-client
+faiss-cpu
+rank_bm25
+sentence-transformers
+ragas
+datasets
+pandas
+python-dotenv
+openpyxl
+datasketch

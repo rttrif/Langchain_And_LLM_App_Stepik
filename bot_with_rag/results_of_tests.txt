@@ -1,0 +1,54 @@
+(local_dev_env) $ python rag_final.py
+2025-11-26 09:20:21,063 - INFO - Environment variables loaded
+2025-11-26 09:20:21,104 - INFO - LLM initialized
+2025-11-26 09:20:21,147 - INFO - Embedding model initialized
+2025-11-26 09:20:21,153 - INFO - Processing file: data/RAG (Retrieval Augmented Generation) — простое и понятное объяснение _ Хабр.mhtml
+2025-11-26 09:20:21,153 - ERROR - Error processing data/RAG (Retrieval Augmented Generation) — простое и понятное объяснение _ Хабр.mhtml: Unsupported file format: .mhtml
+2025-11-26 09:20:21,154 - INFO - Processing file: data/rag_info.md
+2025-11-26 09:20:21,155 - ERROR - Error processing data/rag_info.md: No module named 'unstructured'
+2025-11-26 09:20:21,156 - INFO - Processing file: data/Что такое RAG_ Объяснение генерации ответа с дополнительной выборкой на базе искусственного интеллекта. AWS.mhtml
+2025-11-26 09:20:21,156 - ERROR - Error processing data/Что такое RAG_ Объяснение генерации ответа с дополнительной выборкой на базе искусственного интеллекта. AWS.mhtml: Unsupported file format: .mhtml
+2025-11-26 09:20:21,156 - INFO - Total documents processed: 0
+2025-11-26 09:20:21,156 - ERROR - No documents found. Please add documents to the 'data' directory.
+2025-11-26 09:20:21,156 - INFO - Using FAISS Vector Store
+2025-11-26 09:20:29,073 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/embed "HTTP/1.1 200 OK"
+2025-11-26 09:20:29,083 - INFO - Loading faiss with AVX2 support.
+2025-11-26 09:20:29,137 - INFO - Successfully loaded faiss with AVX2 support.
+2025-11-26 09:20:29,158 - INFO - FAISS index saved to 'faiss_index'
+2025-11-26 09:20:29,178 - INFO - FAISS index loaded successfully
+2025-11-26 09:20:29,183 - INFO - Prompts loaded from prompts.yaml
+2025-11-26 09:20:32,288 - INFO - Use pytorch device: cuda:0
+
+==================================================
+🤖 Bot with RAG initialized! (Type 'exit' to quit)
+==================================================
+
+User: Что такое RAG?
+2025-11-26 09:21:07,878 - ERROR - An error occurred: 'utf-8' codec can't encode character '\udcd1' in position 41: surrogates not allowed
+
+User: Что такое RAG
+2025-11-26 09:21:30,714 - ERROR - An error occurred: 'utf-8' codec can't encode character '\udcd0' in position 52: surrogates not allowed
+
+User: what is rag
+2025-11-26 09:21:45,300 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/embed "HTTP/1.1 200 OK"
+Batches: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  3.79it/s]
+2025-11-26 09:21:46,867 - INFO - HTTP Request: POST https://ollama.com/api/chat "HTTP/1.1 200 OK"
+2025-11-26 09:21:47,342 - INFO - {'event': 'answer', 'query': 'рwhat is rag', 'conf': 0.7, 'top1_norm': 1.0, 'margin': 0.0, 'n_docs': 1}
+
+Bot: По приведённому контексту я не знаю, что такое RAG.
+
+User: What is Retrieval Augmented Generatio
+2025-11-26 09:22:28,280 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/embed "HTTP/1.1 200 OK"
+Batches: 100%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 100.37it/s]
+2025-11-26 09:22:29,515 - INFO - HTTP Request: POST https://ollama.com/api/chat "HTTP/1.1 200 OK"
+2025-11-26 09:22:29,798 - INFO - {'event': 'answer', 'query': 'What is Retrieval Augmented Generatio', 'conf': 0.7, 'top1_norm': 1.0, 'margin': 0.0, 'n_docs': 1}
+
+Bot: Не знаю.
+
+User: what is Retrieval
+2025-11-26 09:23:04,603 - INFO - HTTP Request: POST http://127.0.0.1:11434/api/embed "HTTP/1.1 200 OK"
+Batches: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  5.97it/s]
+2025-11-26 09:23:17,524 - INFO - HTTP Request: POST https://ollama.com/api/chat "HTTP/1.1 200 OK"
+2025-11-26 09:23:17,713 - INFO - {'event': 'answer', 'query': 'what is Retrieval', 'conf': 0.7, 'top1_norm': 1.0, 'margin': 0.0, 'n_docs': 1}
+
+Bot: Не знаю.

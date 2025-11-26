@@ -1,0 +1,44 @@
+rag_answer_template: |
+  Ты помощник по внутренней базе знаний. Отвечай ТОЛЬКО по приведённому контексту.
+  Если информации нет — ответь буквально: «Не знаю».
+
+  Контекст:
+  {context}
+
+  Вопрос: {question}
+
+  Ответ:
+
+ground_truth_template: |
+  На основе предоставленного контекста дай точный и полный ответ на вопрос.
+
+  Контекст:
+  {context}
+
+  Вопрос: {question}
+
+  Ответ:
+
+hallucination_check_template: |
+  Проверь, содержит ли ответ информацию, которой нет в контексте.
+
+  Контекст:
+  {context}
+
+  Ответ:
+  {answer}
+
+  Содержит ли ответ информацию не из контекста (галлюцинацию)? Ответь только "Да" или "Нет".
+
+contextual_compression_template: |
+  Given the following question and document, determine if the document contains relevant information to answer the question.
+  Return ONLY a relevance score from 0.0 to 1.0, where:
+  - 0.0 = completely irrelevant
+  - 0.5 = somewhat relevant
+  - 1.0 = highly relevant
+
+  Question: {query}
+
+  Document: {document}
+
+  Relevance score (just the number):

@@ -184,6 +184,7 @@ class AdvancedHybridRetriever:
             ce_threshold: float | None = None,
             use_contextual_compression: bool = True,
             compression_threshold: float = 0.5,
+            prompts: Dict[str, str] = None
     ):
         self.child_vectorstore = child_vectorstore
         self.child_documents = child_documents
@@ -197,6 +198,7 @@ class AdvancedHybridRetriever:
         self.ce_threshold = ce_threshold
         self.use_contextual_compression = use_contextual_compression
         self.compression_threshold = compression_threshold
+        self.prompts = prompts or {}
 
         self.child_id_map = {i: doc for i, doc in enumerate(child_documents)}
 
@@ -289,7 +291,9 @@ class AdvancedHybridRetriever:
         return parent_docs
 
     def _contextual_compression(self, query: str, documents: List[Document]) -> List[Tuple[Document, float]]:
-        compression_prompt = ChatPromptTemplate.from_template("""
+        template = self.prompts.get('contextual_compression_template', "")
+        if not template:
+            template = """
 Given the following question and document, determine if the document contains relevant information to answer the question.
 Return ONLY a relevance score from 0.0 to 1.0, where:
 - 0.0 = completely irrelevant
@@ -300,7 +304,9 @@ Question: {query}
 
 Document: {document}
 
-Relevance score (just the number):""")
+Relevance score (just the number):"""
+
+        compression_prompt = ChatPromptTemplate.from_template(template)
 
         compression_chain = compression_prompt | self.llm | StrOutputParser()
 
